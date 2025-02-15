@@ -5,11 +5,13 @@ volumes:
 
 networks:
   n8n:
+  ollama-net:
+    external: true
+  traefik-net:
+    external: true
 
 x-n8n: &service-n8n
   image: n8nio/n8n:latest
-  networks: 
-    - n8n
   environment:
     - DB_TYPE=postgresdb
     - DB_POSTGRESDB_HOST=postgres
@@ -19,7 +21,8 @@ x-n8n: &service-n8n
     - N8N_PERSONALIZATION_ENABLED=false
     - N8N_ENCRYPTION_KEY
     - N8N_USER_MANAGEMENT_JWT_SECRET
-    - OLLAMA_HOST=http://ollama.home.tivolis.de:11434
+    - OLLAMA_HOST=http://ollama:11434
+    - WEBHOOK_URL=https://n8n.home
 
 services:
   postgres:
@@ -45,6 +48,8 @@ services:
     hostname: n8n-import
     container_name: n8n-import
     entrypoint: /bin/sh
+    networks:
+      - n8n
     command:
       - "-c"
       - "n8n import:credentials --separate --input=/backup/credentials && n8n import:workflow --separate --input=/backup/workflows"
@@ -61,10 +66,22 @@ services:
     restart: unless-stopped
     ports:
       - 5678:5678
+    networks:
+      - traefik-net
+      - ollama-net
+      - n8n
     volumes:
       - n8n_storage:/home/node/.n8n
       - ./n8n/backup:/backup
       - ./shared:/data/shared
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=traefik-net"
+      - "traefik.http.routers.n8n.rule=Host(`n8n.home`)"
+      - "traefik.http.routers.n8n.entrypoints=web,websecure"
+      - "traefik.http.routers.n8n.tls.certresolver=ionos"
+      - "traefik.http.routers.n8n.tls=true"
+      - "traefik.http.services.n8n.loadBalancer.server.port=5678"
     depends_on:
       postgres:
         condition: service_healthy
